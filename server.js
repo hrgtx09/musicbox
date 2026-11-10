@@ -1,0 +1,48 @@
+const express=require('express'),multer=require('multer'),Database=require('better-sqlite3'),bcrypt=require('bcryptjs'),jwt=require('jsonwebtoken'),path=require('path'),fs=require('fs'),crypto=require('crypto');
+const DATA=process.env.DATA_DIR||path.join(__dirname,'data');
+fs.mkdirSync(path.join(DATA,'uploads'),{recursive:true});
+const db=new Database(path.join(DATA,'app.db'));
+db.exec(`create table if not exists users(id integer primary key,username text unique,hash text);
+create table if not exists songs(id integer primary key,title text,artist text,album text,file text,cover text,plays integer default 0,at integer);
+create table if not exists artists(name text primary key,verified integer default 0,img text);
+create table if not exists likes(uid integer,sid integer,primary key(uid,sid));
+create table if not exists settings(k text primary key,v text);`);
+const SECRET=process.env.JWT_SECRET||'change-this-secret';
+const OWNER=process.env.OWNER_USER||'owner',OPASS=process.env.OWNER_PASS||'owner123';
+const app=express();app.use(express.json());
+app.use('/uploads',express.static(path.join(DATA,'uploads')));
+app.get('/',(r,s)=>s.sendFile(path.join(__dirname,'index.html')));
+const up=multer({storage:multer.diskStorage({destination:path.join(DATA,'uploads'),filename:(r,f,cb)=>cb(null,crypto.randomBytes(8).toString('hex')+path.extname(f.originalname))}),limits:{fileSize:60*1024*1024}});
+const sign=(o)=>jwt.sign(o,SECRET,{expiresIn:'90d'});
+function auth(req,res,next){try{req.u=jwt.verify((req.headers.authorization||'').replace('Bearer ',''),SECRET)}catch(e){req.u=null}next()}
+const need=(req,res,next)=>req.u?next():res.status(401).json({error:'Login karo'});
+const owner=(req,res,next)=>req.u&&req.u.role==='owner'?next():res.status(403).json({error:'Sirf owner'});
+app.use(auth);
+app.post('/api/register',(req,res)=>{const{username,password}=req.body||{};if(!username||!password||password.length<4)return res.status(400).json({error:'Username aur 4+ letter password do'});
+ try{const r=db.prepare('insert into users(username,hash) values(?,?)').run(username.trim(),bcrypt.hashSync(password,10));res.json({token:sign({uid:r.lastInsertRowid,name:username,role:'user'}),name:username,role:'user'})}catch(e){res.status(400).json({error:'Username pehle se hai'})}});
+app.post('/api/login',(req,res)=>{const{username,password}=req.body||{};
+ if(username===OWNER&&password===OPASS)return res.json({token:sign({uid:0,name:username,role:'owner'}),name:username,role:'owner'});
+ const u=db.prepare('select * from users where username=?').get(username||'');
+ if(!u||!bcrypt.compareSync(password||'',u.hash))return res.status(400).json({error:'Username ya password galat'});
+ res.json({token:sign({uid:u.id,name:u.username,role:'user'}),name:u.username,role:'user'})});
+app.get('/api/state',(req,res)=>{const settings={};db.prepare('select * from settings').all().forEach(r=>settings[r.k]=r.v);
+ res.json({songs:db.prepare('select * from songs order by plays desc,at desc').all(),artists:db.prepare('select * from artists').all(),settings,
+ likes:req.u?db.prepare('select sid from likes where uid=?').all(req.u.uid).map(r=>r.sid):[]})});
+app.post('/api/play/:id',(req,res)=>{db.prepare('update songs set plays=plays+1 where id=?').run(req.params.id);res.json({ok:1})});
+app.post('/api/like/:id',need,(req,res)=>{const a=[req.u.uid,req.params.id];
+ if(db.prepare('select 1 from likes where uid=? and sid=?').get(...a))db.prepare('delete from likes where uid=? and sid=?').run(...a);else db.prepare('insert into likes values(?,?)').run(...a);res.json({ok:1})});
+app.post('/api/upload',owner,up.fields([{name:'audio',maxCount:50},{name:'cover',maxCount:1},{name:'artistImg',maxCount:1}]),(req,res)=>{
+ const f=req.files||{},artist=(req.body.artist||'Unknown').trim(),album=(req.body.album||'').trim(),t1=(req.body.title||'').trim(),a=f.audio||[];
+ if(!a.length)return res.status(400).json({error:'Audio file chuno'});
+ const cover=f.cover?'/uploads/'+f.cover[0].filename:'';
+ db.prepare('insert or ignore into artists(name) values(?)').run(artist);
+ if(f.artistImg)db.prepare('update artists set img=? where name=?').run('/uploads/'+f.artistImg[0].filename,artist);
+ const ins=db.prepare('insert into songs(title,artist,album,file,cover,at) values(?,?,?,?,?,?)');let k=0;
+ a.forEach(x=>ins.run(a.length===1&&t1?t1:path.parse(x.originalname).name,artist,album,'/uploads/'+x.filename,cover,Date.now()+(k++)));
+ res.json({ok:a.length})});
+app.delete('/api/songs/:id',owner,(req,res)=>{const s=db.prepare('select * from songs where id=?').get(req.params.id);
+ if(s){[s.file,s.cover].filter(Boolean).forEach(p=>fs.unlink(path.join(DATA,p),()=>{}));db.prepare('delete from songs where id=?').run(s.id)}res.json({ok:1})});
+app.post('/api/verify',owner,(req,res)=>{const n=(req.body.artist||'').trim();db.prepare('insert or ignore into artists(name) values(?)').run(n);
+ db.prepare('update artists set verified=1-verified where name=?').run(n);res.json({ok:1})});
+app.post('/api/settings',owner,(req,res)=>{for(const k of['name','color'])if(req.body[k])db.prepare('insert or replace into settings values(?,?)').run(k,req.body[k]);res.json({ok:1})});
+app.listen(process.env.PORT||3000,()=>console.log('MusicBox chal raha hai'));

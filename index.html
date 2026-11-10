@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="hi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MusicBox</title>
+<style>
+:root{color-scheme:dark;--bg:#121212;--card:#1f1f1f;--card2:#2a2a2a;--tx:#fff;--mu:#a7a7a7;--ac:#1ed760;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{max-width:520px;margin:0 auto;padding:16px 16px 190px}
+h1{font-size:26px;margin:8px 0 14px}h2{font-size:18px;margin:20px 0 10px}
+.chips{display:flex;gap:8px;margin-bottom:14px}.chip{background:var(--card2);border-radius:20px;padding:8px 16px;font-size:14px;cursor:pointer}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tile{display:flex;align-items:center;gap:8px;background:var(--card);border-radius:6px;overflow:hidden;cursor:pointer;font-weight:600;font-size:14px}
+.cv{width:52px;height:52px;background:var(--card2);flex:none;object-fit:cover;display:flex;align-items:center;justify-content:center;color:var(--mu)}.rd{border-radius:50%}
+.row{display:flex;align-items:center;gap:12px;padding:8px 0;cursor:pointer}.row .t{flex:1;min-width:0}.t b,.t span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.t span{color:var(--mu);font-size:13px}
+button,input{font:inherit;color:inherit}
+.btn{background:var(--tx);color:#000;border:0;border-radius:24px;padding:10px 20px;font-weight:700;cursor:pointer}.btn.g{background:var(--ac)}.btn.s{background:var(--card2);color:var(--tx)}
+input{width:100%;background:var(--card2);border:0;border-radius:8px;padding:12px;margin:6px 0}
+#mini{position:fixed;left:8px;right:8px;bottom:calc(64px + env(safe-area-inset-bottom,0px));max-width:504px;margin:0 auto;background:#3a2a5a;border-radius:10px;padding:8px 10px;display:none}
+#mini .top{display:flex;align-items:center;gap:10px}#mini .t{flex:1;min-width:0}
+.ic{background:none;border:0;font-size:22px;cursor:pointer;padding:4px 8px}
+#seek{width:100%;accent-color:var(--ac);padding:0;margin:6px 0 0;height:4px}
+nav{position:fixed;left:0;right:0;bottom:0;background:#000d;backdrop-filter:blur(8px);display:flex;justify-content:space-around;padding:8px 0 calc(8px + env(safe-area-inset-bottom,0px))}
+nav div{text-align:center;font-size:12px;color:var(--mu);cursor:pointer;flex:1}nav div.on{color:var(--tx)}nav i{display:block;font-style:normal;font-size:22px}
+.box{background:var(--card);border-radius:12px;padding:14px;margin:12px 0}.mu{color:var(--mu);font-size:13px}
+.vt{display:inline-flex;width:16px;height:16px;border-radius:50%;background:#3d91ff;color:#fff;font-size:11px;align-items:center;justify-content:center;margin-left:4px;vertical-align:middle}
+.hd{display:flex;align-items:center;gap:14px;margin:10px 0}.hd .cv{width:96px;height:96px}
+</style></head><body>
+<div id="app"></div>
+<div id="mini"><div class="top"><div class="cv" id="mc">♪</div><div class="t"><b id="mt"></b><span id="ma"></span></div><button class="ic" id="pv">⏮</button><button class="ic" id="pp">▶</button><button class="ic" id="nx">⏭</button></div><input type="range" id="seek" min="0" max="100" value="0"></div>
+<nav id="nav"></nav>
+<audio id="au"></audio>
+<script>
+const $=s=>document.querySelector(s),au=$('#au');
+let S={raw:[],songs:[],artistsMeta:{},cfg:{name:'MusicBox',color:'#1ed760'},tab:'home',q:'',art:'',alb:'',queue:[],qi:-1,likes:[],tok:localStorage.getItem('tok')||'',role:localStorage.getItem('role')||'',uname:localStorage.getItem('uname')||'',msg:''};
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function api(p,o={}){const h={...(o.headers||{})};if(S.tok)h.Authorization='Bearer '+S.tok;if(o.json){h['Content-Type']='application/json';o.body=JSON.stringify(o.json)}
+ const r=await fetch('/api/'+p,{...o,headers:h});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Error');return j}
+async function load(){try{const d=await api('state');S.raw=d.songs.map(s=>({...s,id:String(s.id),url:s.file}));S.likes=d.likes.map(String);S.artistsMeta={};d.artists.forEach(a=>S.artistsMeta[a.name]=a);S.cfg={...S.cfg,...d.settings};S.songs=S.raw}catch(e){S.msg='Server se connect nahi hua'}render()}
+const by=id=>S.raw.find(s=>s.id===id);
+const ids=f=>S.songs.filter(f).map(s=>s.id);
+const albIds=(a,n)=>S.raw.filter(s=>s.album===a&&s.artist===n).sort((x,y)=>x.at-y.at).map(s=>s.id);
+const shuf=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
+const isV=n=>(S.artistsMeta[n]||{}).verified;
+const vt=n=>isV(n)?'<span class="vt">✓</span>':'';
+const artists=()=>[...new Set(S.songs.map(s=>s.artist))];
+const albums=()=>{const m={};S.songs.forEach(s=>{if(s.album)m[s.album+'|'+s.artist]=[s.album,s.artist]});return Object.values(m)};
+const cover=s=>s&&s.cover?`<img class="cv" src="${esc(s.cover)}">`:'<div class="cv">♪</div>';
+const aimg=n=>{const u=(S.artistsMeta[n]||{}).img||(S.songs.find(x=>x.artist===n&&x.cover)||{}).cover;return u?`<img class="cv rd" src="${esc(u)}">`:'<div class="cv rd">♪</div>'};
+const owner=()=>S.role==='owner';
+const songRow=s=>`<div class="row" data-p="${s.id}">${cover(s)}<div class="t"><b>${esc(s.title)}</b><span>${esc(s.artist)}${vt(s.artist)}${s.album?' · '+esc(s.album):''}</span></div><button class="ic" data-l="${s.id}">${S.likes.includes(s.id)?'💚':'🤍'}</button>${owner()?`<button class="ic" data-d="${s.id}">🗑</button>`:''}</div>`;
+const lst=a=>a.map(by).filter(Boolean).map(songRow).join('');
+const artRow=n=>`<div class="row" data-a="${esc(n)}">${aimg(n)}<div class="t"><b>${esc(n)}${vt(n)}</b><span>Artist</span></div></div>`;
+const albRow=(a,n)=>`<div class="row" data-b="${esc(a)}" data-a2="${esc(n)}">${cover(S.raw.find(x=>x.album===a&&x.artist===n))}<div class="t"><b>${esc(a)}</b><span>Album · ${esc(n)}</span></div></div>`;
+function render(){
+ document.documentElement.style.setProperty('--ac',S.cfg.color);document.title=S.cfg.name;
+ let h='';const T=S.tab;
+ if(T==='home'){h=`<h1>${esc(S.cfg.name)}</h1>`;if(!S.songs.length)h+='<p class="mu">Abhi koi song nahi hai.</p>';
+  h+='<div class="grid">'+S.songs.slice(0,6).map(s=>`<div class="tile" data-p="${s.id}">${cover(s)}<span>${esc(s.title)}</span></div>`).join('')+'</div>';
+  h+='<h2>Artists</h2>'+artists().map(artRow).join('')+'<h2>Albums</h2>'+albums().map(([a,n])=>albRow(a,n)).join('')+'<h2>Most played</h2>'+lst(S.songs.map(s=>s.id));
+ }else if(T==='search'){const ql=S.q.toLowerCase(),m=(...x)=>x.join(' ').toLowerCase().includes(ql);
+  h=`<h1>Search</h1><input id="q" placeholder="What do you want to listen to?" value="${esc(S.q)}">`;
+  if(S.q)h+='<h2>Artists</h2>'+artists().filter(n=>m(n)).map(artRow).join('')+'<h2>Albums</h2>'+albums().filter(([a])=>m(a)).map(([a,n])=>albRow(a,n)).join('')+'<h2>Songs</h2>'+lst(ids(s=>m(s.title,s.artist,s.album||'')));
+ }else if(T==='artist'){const n=S.art;
+  h=`<div class="chips"><span class="chip" data-go="home">← Back</span></div><div class="hd">${aimg(n)}<div><h1 style="margin:0">${esc(n)}${vt(n)}</h1><span class="mu">${isV(n)?'Verified Artist':'Artist'}</span></div></div><button class="btn g" id="pall">▶ Play</button><h2>Songs</h2>`+lst(ids(s=>s.artist===n))+'<h2>Albums</h2>'+albums().filter(([a,an])=>an===n).map(([a,an])=>albRow(a,an)).join('');
+ }else if(T==='album'){h=`<div class="chips"><span class="chip" data-go="home">← Back</span></div><h1>${esc(S.alb)}</h1><div class="row" data-a="${esc(S.art)}"><span class="mu">${esc(S.art)}${vt(S.art)}</span></div><button class="btn g" id="pall">▶ Play</button>`+lst(albIds(S.alb,S.art));
+ }else{
+  h='<h1>Your Library</h1><h2>Liked Songs</h2>'+(lst(ids(s=>S.likes.includes(s.id)))||'<p class="mu">Kisi song ke 🤍 par tap karo (login chahiye).</p>');
+  h+=S.tok?`<div class="box"><b>${esc(S.uname)}</b>${owner()?' · Owner':''}<br><br><button class="btn s" id="logout">Logout</button></div>`:`<div class="box"><b>Login (optional)</b><input id="lu" placeholder="Username"><input id="lp" type="password" placeholder="Password"><button class="btn g" id="login">Login</button> <button class="btn s" id="reg">Register</button></div>`;
+  if(owner())h+=`<div class="box"><b>Owner: Upload</b><input id="ua" placeholder="Artist naam"><input id="ub" placeholder="Album naam (optional)"><input id="ut" placeholder="Song name (sirf 1 song ho to)"><p class="mu">Audio files (kai chun sakte ho)</p><input id="uf" type="file" accept="audio/*" multiple><p class="mu">Cover image (optional)</p><input id="ui" type="file" accept="image/*"><p class="mu">Artist photo (optional)</p><input id="uai" type="file" accept="image/*"><button class="btn g" id="up">Upload</button></div>
+<div class="box"><b>Owner: Customization</b><input id="cn" value="${esc(S.cfg.name)}"><input id="cc" type="color" value="${S.cfg.color}"><button class="btn g" id="sv">Save</button><p class="mu">Blue tick:</p><input id="vn" placeholder="Artist naam"><button class="btn s" id="vf">Verify / Unverify</button></div>`;
+ }
+ if(S.msg)h+=`<p class="mu">${esc(S.msg)}</p>`;
+ $('#app').innerHTML=h;
+ $('#nav').innerHTML=[['home','⌂','Home'],['search','⌕','Search'],['library','▥','Library']].map(([k,i,n])=>`<div class="${T===k?'on':''}" data-go="${k}"><i>${i}</i>${n}</div>`).join('');
+}
+function playId(id){const s=by(id);if(!s)return;au.src=s.url;au.play();$('#mini').style.display='block';$('#mt').textContent=s.title;$('#ma').textContent=s.artist;$('#mc').outerHTML=s.cover?`<img class="cv" id="mc" src="${esc(s.cover)}">`:'<div class="cv" id="mc">♪</div>';fetch('/api/play/'+id,{method:'POST'}).catch(()=>{})}
+function startFrom(id){let q;if(S.tab==='artist')q=ids(s=>s.artist===S.art);else if(S.tab==='album')q=albIds(S.alb,S.art);else q=[id,...shuf(ids(s=>s.id!==id))];S.queue=q;S.qi=Math.max(0,q.indexOf(id));playId(q[S.qi])}
+function step(d){const q=S.queue;if(!q.length)return;S.qi=(S.qi+d+q.length)%q.length;playId(q[S.qi])}
+$('#pp').onclick=()=>au.paused?au.play():au.pause();$('#pv').onclick=()=>step(-1);$('#nx').onclick=()=>step(1);
+au.onplay=()=>$('#pp').textContent='⏸';au.onpause=()=>$('#pp').textContent='▶';au.onended=()=>step(1);
+au.ontimeupdate=()=>{if(au.duration)$('#seek').value=au.currentTime/au.duration*100};$('#seek').oninput=e=>{if(au.duration)au.currentTime=e.target.value/100*au.duration};
+function setAuth(d){S.tok=d.token;S.role=d.role;S.uname=d.name;localStorage.setItem('tok',d.token);localStorage.setItem('role',d.role);localStorage.setItem('uname',d.name)}
+document.addEventListener('click',async e=>{
+ const t=e.target.closest('[data-p],[data-l],[data-d],[data-go],[data-a],[data-b],button');if(!t)return;S.msg='';const D=t.dataset,id=t.id;
+ try{
+ if(D.l){if(!S.tok){S.msg='Like ke liye login karo.';S.tab='library';return render()}await api('like/'+D.l,{method:'POST'});S.likes=S.likes.includes(D.l)?S.likes.filter(x=>x!==D.l):[...S.likes,D.l];return render()}
+ if(D.d){if(confirm('Song delete karna hai?')){await api('songs/'+D.d,{method:'DELETE'});await load()}return}
+ if(D.a){S.art=D.a;S.tab='artist';return render()}
+ if(D.b){S.alb=D.b;S.art=D.a2;S.tab='album';return render()}
+ if(D.go){S.tab=D.go;return render()}
+ if(D.p)return startFrom(D.p);
+ if(id==='pall'){const q=S.tab==='artist'?ids(s=>s.artist===S.art):albIds(S.alb,S.art);if(q.length){S.queue=q;S.qi=0;playId(q[0])}return}
+ if(id==='login'||id==='reg'){setAuth(await api(id==='reg'?'register':'login',{method:'POST',json:{username:$('#lu').value,password:$('#lp').value}}));await load();return}
+ if(id==='logout'){S.tok=S.role=S.uname='';localStorage.clear();S.likes=[];return render()}
+ if(id==='vf'){await api('verify',{method:'POST',json:{artist:$('#vn').value}});await load()}
+ if(id==='sv'){await api('settings',{method:'POST',json:{name:$('#cn').value,color:$('#cc').value}});await load();S.msg='Saved'; render()}
+ if(id==='up'){const fs=$('#uf').files;if(!fs.length){S.msg='Audio file chuno.';return render()}
+  const f=new FormData();[...fs].forEach(x=>f.append('audio',x));f.append('artist',$('#ua').value);f.append('album',$('#ub').value);f.append('title',$('#ut').value);
+  if($('#ui').files[0])f.append('cover',$('#ui').files[0]);if($('#uai').files[0])f.append('artistImg',$('#uai').files[0]);
+  $('#up').textContent='Uploading...';const r=await api('upload',{method:'POST',body:f});await load();S.msg=r.ok+' song upload ho gaye ✅';render()}
+ }catch(x){S.msg=x.message;render()}
+});
+document.addEventListener('input',e=>{if(e.target.id==='q'){S.q=e.target.value;const p=e.target.selectionStart;render();const q=$('#q');q.focus();q.setSelectionRange(p,p)}});
+load();
+</script></body></html>
